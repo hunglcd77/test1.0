@@ -6983,5 +6983,534 @@ document.addEventListener('DOMContentLoaded',function(){const density=$('opc_den
 <script id="wwtc-v703-audit-meta">
 (function(){window.WWTC_V703_UI_AUDIT={version:'V7.0.3',scope:'responsive-popup-dock',desktopDock:'visible-interactive',mobileDock:'covered-by-popup',tabSwitchFix:true};})();
 </script>
+
+<!-- =========================================================
+     DWS V7.0 — SUPABASE INTEGRATION
+     Auth + Projects + Operation Logs + RLS-compatible client
+     ========================================================= -->
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style id="dws-supabase-auth-css">
+#dwsSupabaseAuthOverlay{
+  position:fixed;inset:0;z-index:2147483000;
+  display:flex;align-items:center;justify-content:center;
+  padding:20px;box-sizing:border-box;
+  background:rgba(239,247,243,.97);
+  backdrop-filter:blur(8px);
+}
+#dwsSupabaseAuthOverlay.dwsHidden{display:none!important}
+.dwsAuthCard{
+  width:min(430px,100%);box-sizing:border-box;
+  background:#fff;border:1px solid #d7e6de;border-radius:20px;
+  padding:30px;box-shadow:0 20px 70px rgba(25,78,53,.14);
+}
+.dwsAuthBrand{font-size:11px;font-weight:900;letter-spacing:.14em;color:#2e8058;text-transform:uppercase}
+.dwsAuthCard h1{margin:7px 0 5px;color:#214b39;font-size:23px}
+.dwsAuthCard p{margin:0 0 20px;color:#718079;font-size:13px;line-height:1.5}
+.dwsAuthCard label{display:block;margin:12px 0 5px;font-size:12px;font-weight:800;color:#355a49}
+.dwsAuthCard input{width:100%;box-sizing:border-box;padding:12px 13px;border:1px solid #cddbd3;border-radius:10px;background:#fff;font-size:14px;outline:none}
+.dwsAuthCard input:focus{border-color:#3c9a6a;box-shadow:0 0 0 3px rgba(60,154,106,.10)}
+.dwsAuthBtn{width:100%;border:0;border-radius:10px;padding:12px;margin-top:14px;background:#188a57;color:#fff;font-weight:800;cursor:pointer}
+.dwsAuthBtn.secondary{background:#eef6f1;color:#226244}
+.dwsAuthMsg{min-height:20px;margin-top:12px;font-size:12px;line-height:1.45;color:#a13c3c}
+.dwsUserBar{
+  position:fixed;right:14px;top:12px;z-index:100000;
+  display:none;align-items:center;gap:8px;
+  background:#fff;border:1px solid #d7e6de;border-radius:10px;
+  padding:7px 9px;box-shadow:0 5px 18px rgba(25,78,53,.10);
+  font-size:11px;color:#315143;
+}
+.dwsUserBar.show{display:flex}
+.dwsUserBar button{border:1px solid #d5e2dc;background:#f5faf7;color:#286d4b;border-radius:7px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer}
+body.dwsSupabaseLocked>*:not(#dwsSupabaseAuthOverlay):not(#dwsSupabaseUserBar){visibility:hidden!important}
+@media(max-width:600px){
+  .dwsAuthCard{padding:22px}
+  .dwsUserBar{right:8px;top:8px}
+  .dwsUserBar span{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+</style>
+
+<div id="dwsSupabaseAuthOverlay" aria-hidden="false">
+  <div class="dwsAuthCard">
+    <div class="dwsAuthBrand">DWS V7.0 • SECURE ACCESS</div>
+    <h1>Wastewater Treatment Calculator</h1>
+    <p>Đăng nhập để sử dụng DWS. Dữ liệu dự án và nhật ký được đồng bộ với Supabase theo tài khoản.</p>
+
+    <label for="dwsAuthEmail">Email</label>
+    <input id="dwsAuthEmail" type="email" autocomplete="username" placeholder="Email">
+
+    <label for="dwsAuthPassword">Mật khẩu</label>
+    <input id="dwsAuthPassword" type="password" autocomplete="current-password" placeholder="Mật khẩu">
+
+    <button class="dwsAuthBtn" type="button" id="dwsLoginBtn">Đăng nhập</button>
+    <button class="dwsAuthBtn secondary" type="button" id="dwsResetBtn">Gửi email đặt lại mật khẩu</button>
+
+    <div id="dwsAuthMsg" class="dwsAuthMsg"></div>
+  </div>
+</div>
+
+<div id="dwsSupabaseUserBar" class="dwsUserBar">
+  <span id="dwsCurrentUser"></span>
+  <button type="button" id="dwsLogoutBtn">Đăng xuất</button>
+</div>
+
+<script id="dws-supabase-integration-js">
+(function(){
+  'use strict';
+
+  const SUPABASE_URL = 'https://dvepytmnewvwhaudcnhv.supabase.co';
+  const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_GXF-nfC1ITqpavhIIkBLqw_p1iwY7ZW';
+
+  const SB = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth:{
+        persistSession:true,
+        autoRefreshToken:true,
+        detectSessionInUrl:true
+      }
+    }
+  );
+
+  window.DWS_SUPABASE = SB;
+  window.DWS_SUPABASE_CONFIG = {
+    url: SUPABASE_URL
+  };
+
+  let currentUser = null;
+  let remoteProjects = {};
+
+  const overlay = document.getElementById('dwsSupabaseAuthOverlay');
+  const userBar = document.getElementById('dwsSupabaseUserBar');
+  const userText = document.getElementById('dwsCurrentUser');
+  const msg = document.getElementById('dwsAuthMsg');
+
+  function authMessage(text, error){
+    if(msg){
+      msg.textContent = text || '';
+      msg.style.color = error ? '#a13c3c' : '#286d4b';
+    }
+  }
+
+  function setLocked(locked){
+    document.body.classList.toggle('dwsSupabaseLocked', !!locked);
+    if(overlay){
+      overlay.classList.toggle('dwsHidden', !locked);
+      overlay.setAttribute('aria-hidden', locked ? 'false' : 'true');
+    }
+    if(userBar) userBar.classList.toggle('show', !locked && !!currentUser);
+    if(userText && currentUser) userText.textContent = currentUser.email || '';
+  }
+
+  function clone(v){
+    try{return JSON.parse(JSON.stringify(v));}
+    catch(e){return {};}
+  }
+
+  async function fetchProjects(){
+    if(!currentUser) return {};
+
+    const {data,error} = await SB
+      .from('projects')
+      .select('id,name,snapshot,created_at,updated_at')
+      .eq('user_id', currentUser.id)
+      .order('updated_at',{ascending:false});
+
+    if(error) throw error;
+
+    remoteProjects = {};
+    (data || []).forEach(row=>{
+      if(row && row.name) remoteProjects[row.name] = row.snapshot || {};
+    });
+
+    return remoteProjects;
+  }
+
+  async function upsertProject(snapshot){
+    if(!currentUser) throw new Error('Chưa đăng nhập.');
+
+    const safe = clone(snapshot);
+    const name = String(safe.name || 'Dự án mới').trim();
+
+    const {data,error} = await SB
+      .from('projects')
+      .upsert({
+        user_id: currentUser.id,
+        name: name,
+        snapshot: safe,
+        updated_at: new Date().toISOString()
+      },{
+        onConflict:'user_id,name'
+      })
+      .select()
+      .single();
+
+    if(error) throw error;
+
+    remoteProjects[name] = safe;
+    return data;
+  }
+
+  async function removeProject(name){
+    if(!currentUser) throw new Error('Chưa đăng nhập.');
+
+    const {error} = await SB
+      .from('projects')
+      .delete()
+      .eq('user_id',currentUser.id)
+      .eq('name',name);
+
+    if(error) throw error;
+
+    delete remoteProjects[name];
+  }
+
+  /*
+   * getProjects() is intentionally replaced by a small in-memory cache.
+   * Existing DWS functions continue to work without rewriting the calculator.
+   */
+  window.getProjects = function(){
+    return remoteProjects;
+  };
+
+  /*
+   * Keep a local current-project marker only as a UI convenience.
+   * Actual project data lives in Supabase.
+   */
+  window.DWS_getRemoteProjects = function(){
+    return remoteProjects;
+  };
+
+  const originalSaveProject = window.saveProject;
+  const originalDeleteProject = window.deleteProject;
+
+  window.saveProject = async function(){
+    if(!currentUser){
+      authMessage('Phiên đăng nhập không còn hiệu lực.',true);
+      setLocked(true);
+      return;
+    }
+
+    try{
+      const snapshot = buildProjectSnapshot();
+      await upsertProject(snapshot);
+
+      localStorage.setItem('dvnCurrentProject', snapshot.name);
+      renderProjectList();
+
+      const out = document.getElementById('prout');
+      if(out) out.textContent = '✓ Đã lưu dự án lên Supabase: ' + snapshot.name;
+
+      if(typeof showWWTCToast === 'function'){
+        showWWTCToast('Đã lưu dự án lên Supabase');
+      }
+    }catch(error){
+      console.error('DWS Supabase saveProject:',error);
+      const out = document.getElementById('prout');
+      if(out) out.textContent = '✕ Lỗi Supabase: ' + (error.message || error);
+      if(typeof showWWTCToast === 'function'){
+        showWWTCToast('Không thể lưu lên Supabase');
+      }
+    }
+  };
+
+  window.deleteProject = async function(name){
+    if(!currentUser) return;
+
+    const projects = window.getProjects();
+    if(!Object.prototype.hasOwnProperty.call(projects,name)) return;
+
+    try{
+      await removeProject(name);
+
+      if(localStorage.getItem('dvnCurrentProject') === name){
+        localStorage.removeItem('dvnCurrentProject');
+      }
+
+      renderProjectList();
+
+      const out = document.getElementById('prout');
+      if(out) out.textContent = '✓ Đã xóa dự án trên Supabase: ' + name;
+
+      if(typeof showWWTCToast === 'function'){
+        showWWTCToast('Đã xóa dự án');
+      }
+    }catch(error){
+      console.error('DWS Supabase deleteProject:',error);
+      alert('Không thể xóa dự án: ' + (error.message || error));
+    }
+  };
+
+  /*
+   * Sync operation_logs table into the browser cache.
+   * The existing DWS operation UI still reads its established localStorage
+   * project-scoped key, so the visible UI remains unchanged.
+   */
+  async function syncOperationLogsToBrowser(){
+    if(!currentUser || !window.wwtcGetOperationLogStorageKey) return;
+
+    const {data,error} = await SB
+      .from('operation_logs')
+      .select('project_name,log_date,entry')
+      .eq('user_id',currentUser.id);
+
+    if(error){
+      console.warn('DWS operation log sync:',error);
+      return;
+    }
+
+    (data || []).forEach(row=>{
+      if(!row || !row.project_name || !row.log_date) return;
+
+      const currentProject = String(
+        localStorage.getItem('dvnCurrentProject') || ''
+      );
+
+      /*
+       * Do not force another project's log into the active project.
+       * Project snapshots remain the primary restore mechanism.
+       */
+      if(currentProject && currentProject !== row.project_name) return;
+
+      const key =
+        'WWTC_OPERATION_LOGS_V2::' +
+        encodeURIComponent(row.project_name);
+
+      let logs = {};
+      try{
+        logs = JSON.parse(localStorage.getItem(key) || '{}') || {};
+      }catch(e){ logs = {}; }
+
+      logs[row.log_date] = row.entry;
+      try{
+        localStorage.setItem(key,JSON.stringify(logs));
+      }catch(e){}
+    });
+  }
+
+  async function saveOperationLogRemote(){
+    if(!currentUser) return;
+
+    try{
+      const projectName = String(
+        document.getElementById('prname')?.value ||
+        localStorage.getItem('dvnCurrentProject') ||
+        '__UNASSIGNED__'
+      ).trim();
+
+      const date = String(
+        document.getElementById('wwtcLogDate2')?.value || ''
+      ).trim();
+
+      if(!projectName || projectName === '__UNASSIGNED__' || !date) return;
+
+      const key =
+        'WWTC_OPERATION_LOGS_V2::' +
+        encodeURIComponent(projectName);
+
+      let logs = {};
+      try{
+        logs = JSON.parse(localStorage.getItem(key) || '{}') || {};
+      }catch(e){ logs = {}; }
+
+      const entry = logs[date];
+      if(!entry) return;
+
+      const {error} = await SB
+        .from('operation_logs')
+        .upsert({
+          user_id: currentUser.id,
+          project_name: projectName,
+          log_date: date,
+          entry: entry,
+          updated_at: new Date().toISOString()
+        },{
+          onConflict:'user_id,project_name,log_date'
+        });
+
+      if(error) throw error;
+
+    }catch(error){
+      console.error('DWS remote operation log save:',error);
+      if(typeof showWWTCToast === 'function'){
+        showWWTCToast('Nhật ký cục bộ đã lưu; đồng bộ Supabase lỗi');
+      }
+    }
+  }
+
+  const originalOperationSave = window.wwtcSaveOperationLog2;
+
+  window.wwtcSaveOperationLog2 = async function(){
+    if(!currentUser){
+      setLocked(true);
+      return;
+    }
+
+    if(typeof originalOperationSave === 'function'){
+      originalOperationSave.apply(this,arguments);
+    }
+
+    /*
+     * Original function writes the audited V2 log locally first.
+     * Wait one tick, then persist the exact same entry remotely.
+     */
+    setTimeout(saveOperationLogRemote,50);
+  };
+
+  /*
+   * When a project is selected/opened, also load its remote operation logs.
+   */
+  async function prepareAfterLogin(){
+    await fetchProjects();
+
+    /*
+     * Preserve the current project name only as a UI marker.
+     * Do not overwrite remote data with local data automatically.
+     */
+    await syncOperationLogsToBrowser();
+
+    try{
+      renderProjectList();
+    }catch(e){
+      console.warn('DWS render project list:',e);
+    }
+  }
+
+  async function login(){
+    const email = String(
+      document.getElementById('dwsAuthEmail')?.value || ''
+    ).trim();
+
+    const password =
+      document.getElementById('dwsAuthPassword')?.value || '';
+
+    if(!email || !password){
+      authMessage('Vui lòng nhập email và mật khẩu.',true);
+      return;
+    }
+
+    authMessage('Đang đăng nhập...',false);
+
+    const {data,error} = await SB.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if(error){
+      authMessage(error.message,true);
+      return;
+    }
+
+    currentUser = data.user;
+    authMessage('');
+    setLocked(false);
+
+    try{
+      await prepareAfterLogin();
+    }catch(error){
+      console.error(error);
+      authMessage(
+        'Đăng nhập thành công nhưng chưa tải được dữ liệu: ' +
+        (error.message || error),true
+      );
+    }
+  }
+
+  async function resetPassword(){
+    const email = String(
+      document.getElementById('dwsAuthEmail')?.value || ''
+    ).trim();
+
+    if(!email){
+      authMessage('Nhập email trước khi yêu cầu đặt lại mật khẩu.',true);
+      return;
+    }
+
+    authMessage('Đang gửi email đặt lại mật khẩu...',false);
+
+    const {error} = await SB.auth.resetPasswordForEmail(email,{
+      redirectTo:window.location.origin + window.location.pathname
+    });
+
+    if(error){
+      authMessage(error.message,true);
+      return;
+    }
+
+    authMessage('Đã gửi email đặt lại mật khẩu. Hãy kiểm tra hộp thư.',false);
+  }
+
+  async function logout(){
+    await SB.auth.signOut();
+  }
+
+  document.getElementById('dwsLoginBtn')?.addEventListener('click',login);
+  document.getElementById('dwsResetBtn')?.addEventListener('click',resetPassword);
+  document.getElementById('dwsLogoutBtn')?.addEventListener('click',logout);
+
+  document.getElementById('dwsAuthPassword')?.addEventListener('keydown',function(e){
+    if(e.key === 'Enter') login();
+  });
+
+  SB.auth.onAuthStateChange(async function(event,session){
+    if(session && session.user){
+      currentUser = session.user;
+      setLocked(false);
+
+      /*
+       * Avoid doing expensive work before the page's own DOM initialization.
+       */
+      setTimeout(async function(){
+        try{
+          await prepareAfterLogin();
+        }catch(error){
+          console.error('DWS Supabase session load:',error);
+        }
+      },150);
+    }else{
+      currentUser = null;
+      remoteProjects = {};
+      setLocked(true);
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded',async function(){
+    try{
+      const {data} = await SB.auth.getSession();
+
+      if(data && data.session && data.session.user){
+        currentUser = data.session.user;
+        setLocked(false);
+
+        setTimeout(async function(){
+          try{
+            await prepareAfterLogin();
+          }catch(error){
+            console.error(error);
+            authMessage(
+              'Không tải được dữ liệu Supabase: ' +
+              (error.message || error),true
+            );
+          }
+        },200);
+      }else{
+        setLocked(true);
+      }
+    }catch(error){
+      console.error('DWS Auth initialization:',error);
+      authMessage('Không thể khởi tạo đăng nhập Supabase.',true);
+      setLocked(true);
+    }
+  });
+
+})();
+</script>
+
+<!-- =========================================================
+     END DWS V7.0 — SUPABASE INTEGRATION
+     ========================================================= -->
+
 </body></html>
 

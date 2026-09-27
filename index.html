@@ -7052,7 +7052,14 @@ body.dwsSupabaseLocked>*:not(#dwsSupabaseAuthOverlay):not(#dwsSupabaseUserBar){v
 
 <div id="dwsSupabaseUserBar" class="dwsUserBar">
   <span id="dwsCurrentUser"></span>
+  <strong id="dwsCurrentRole" style="display:none;padding:3px 7px;border-radius:999px;background:#e9f7ef;color:#17633f;font-size:10px;">ADMIN</strong>
   <button type="button" id="dwsLogoutBtn">Đăng xuất</button>
+</div>
+
+<div id="dwsAdminPanel" style="display:none;position:fixed;right:14px;top:58px;z-index:99999;max-width:360px;background:#fff;border:1px solid #d7e6de;border-radius:12px;padding:14px;box-shadow:0 12px 35px rgba(25,78,53,.14);font:12px Arial,sans-serif;color:#315143;">
+  <div style="font-weight:900;color:#214b39;margin-bottom:6px;">DWS ADMIN</div>
+  <div id="dwsAdminInfo">Tài khoản quản trị</div>
+  <div style="margin-top:8px;font-size:11px;color:#718079;">Quyền quản trị được xác định từ Supabase <b>profiles.role</b>. Quản lý người dùng nâng cao sẽ được thực hiện qua backend an toàn, không đưa secret key vào trình duyệt.</div>
 </div>
 
 <script id="dws-supabase-integration-js">
@@ -7080,11 +7087,14 @@ body.dwsSupabaseLocked>*:not(#dwsSupabaseAuthOverlay):not(#dwsSupabaseUserBar){v
   };
 
   let currentUser = null;
+  let currentRole = 'user';
   let remoteProjects = {};
 
   const overlay = document.getElementById('dwsSupabaseAuthOverlay');
   const userBar = document.getElementById('dwsSupabaseUserBar');
   const userText = document.getElementById('dwsCurrentUser');
+  const roleText = document.getElementById('dwsCurrentRole');
+  const adminPanel = document.getElementById('dwsAdminPanel');
   const msg = document.getElementById('dwsAuthMsg');
 
   function authMessage(text, error){
@@ -7092,6 +7102,26 @@ body.dwsSupabaseLocked>*:not(#dwsSupabaseAuthOverlay):not(#dwsSupabaseUserBar){v
       msg.textContent = text || '';
       msg.style.color = error ? '#a13c3c' : '#286d4b';
     }
+  }
+
+  async function loadUserProfile(){
+    if(!currentUser) return;
+    const {data,error} = await SB
+      .from('profiles')
+      .select('id,email,full_name,role,status')
+      .eq('id',currentUser.id)
+      .maybeSingle();
+    if(error) throw error;
+    currentRole = (data && data.role) ? data.role : 'user';
+    if(data && data.status === 'disabled'){
+      await SB.auth.signOut();
+      throw new Error('Tài khoản đã bị vô hiệu hóa.');
+    }
+    if(roleText){
+      roleText.style.display = currentRole === 'admin' ? 'inline-block' : 'none';
+      roleText.textContent = currentRole === 'admin' ? 'ADMIN' : '';
+    }
+    if(adminPanel) adminPanel.style.display = currentRole === 'admin' ? 'block' : 'none';
   }
 
   function setLocked(locked){
@@ -7363,6 +7393,7 @@ body.dwsSupabaseLocked>*:not(#dwsSupabaseAuthOverlay):not(#dwsSupabaseUserBar){v
    * When a project is selected/opened, also load its remote operation logs.
    */
   async function prepareAfterLogin(){
+    await loadUserProfile();
     await fetchProjects();
 
     /*
@@ -7471,7 +7502,10 @@ body.dwsSupabaseLocked>*:not(#dwsSupabaseAuthOverlay):not(#dwsSupabaseUserBar){v
       },150);
     }else{
       currentUser = null;
+      currentRole = 'user';
       remoteProjects = {};
+      if(roleText) roleText.style.display = 'none';
+      if(adminPanel) adminPanel.style.display = 'none';
       setLocked(true);
     }
   });
